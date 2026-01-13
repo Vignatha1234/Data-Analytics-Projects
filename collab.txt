@@ -1,0 +1,172 @@
+Stage:1 - Cryptocurrency Data Collection
+Uses CoinGecko API (free, no API key).
+
+import requests
+import pandas as pd
+from datetime import datetime
+
+def fetch_crypto_data(coin="bitcoin", vs_currency="usd", days=365):
+    url = f"https://api.coingecko.com/api/v3/coins/{coin}/market_chart"
+    params = {
+        "vs_currency": vs_currency,
+        "days": days,
+        "interval": "daily"
+    }
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+
+    prices = pd.DataFrame(data["prices"], columns=["timestamp", "price"])
+    prices["timestamp"] = pd.to_datetime(prices["timestamp"], unit="ms")
+    prices.set_index("timestamp", inplace=True)
+
+    return prices
+
+df = fetch_crypto_data("bitcoin")
+print(df.head())
+
+
+
+
+Stage 2 – Data Preprocessing & Exploration
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Handle missing values
+df = df.asfreq("D")
+df["price"] = df["price"].interpolate()
+
+# Basic statistics
+print(df.describe())
+
+# Price trend
+plt.figure()
+plt.plot(df.index, df["price"])
+plt.title("Bitcoin Price Trend")
+plt.xlabel("Date")
+plt.ylabel("Price (USD)")
+plt.show()
+
+# Rolling mean
+df["rolling_30"] = df["price"].rolling(window=30).mean()
+
+plt.figure()
+plt.plot(df["price"], label="Price")
+plt.plot(df["rolling_30"], label="30-Day MA")
+plt.legend()
+plt.show()
+
+
+
+
+Stage 3 – Volatility Analysis
+
+
+import numpy as np
+
+df["returns"] = df["price"].pct_change()
+df["volatility_30"] = df["returns"].rolling(window=30).std()
+
+plt.figure()
+plt.plot(df.index, df["volatility_30"])
+plt.title("30-Day Rolling Volatility")
+plt.xlabel("Date")
+plt.ylabel("Volatility")
+plt.show()
+
+
+Stage 4 – Sentiment Analysis (Optional but Included)
+
+from textblob import TextBlob
+
+news_headlines = [
+    "Bitcoin price surges amid ETF optimism",
+    "Crypto market faces regulatory uncertainty",
+    "Investors bullish on Bitcoin long-term"
+]
+
+def analyze_sentiment(texts):
+    sentiments = []
+    for text in texts:
+        polarity = TextBlob(text).sentiment.polarity
+        sentiments.append(polarity)
+    return pd.DataFrame({"headline": texts, "sentiment": sentiments})
+
+sentiment_df = analyze_sentiment(news_headlines)
+print(sentiment_df)
+
+
+
+Stage 5 – Time Series Forecasting
+5.1 ARIMA Model
+
+
+from statsmodels.tsa.arima.model import ARIMA
+
+train = df["price"][:-30]
+test = df["price"][-30:]
+
+model = ARIMA(train, order=(5,1,0))
+model_fit = model.fit()
+
+forecast = model_fit.forecast(steps=30)
+
+plt.figure()
+plt.plot(train.index, train, label="Train")
+plt.plot(test.index, test, label="Actual")
+plt.plot(test.index, forecast, label="Forecast")
+plt.legend()
+plt.title("ARIMA Forecast")
+plt.show()
+
+
+
+5.2 LSTM Model
+
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+import numpy as np
+
+scaler = MinMaxScaler()
+scaled_data = scaler.fit_transform(df[["price"]])
+
+X, y = [], []
+for i in range(60, len(scaled_data)):
+    X.append(scaled_data[i-60:i, 0])
+    y.append(scaled_data[i, 0])
+
+X, y = np.array(X), np.array(y)
+X = X.reshape((X.shape[0], X.shape[1], 1))
+
+model = Sequential([
+    LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)),
+    LSTM(50),
+    Dense(1)
+])
+
+model.compile(optimizer="adam", loss="mse")
+model.fit(X, y, epochs=10, batch_size=32)
+
+predictions = model.predict(X)
+predictions = scaler.inverse_transform(predictions)
+
+
+
+5.3 Prophet Model
+
+from prophet import Prophet
+
+prophet_df = df.reset_index()
+prophet_df.columns = ["ds", "y"]
+
+model = Prophet()
+model.fit(prophet_df)
+
+future = model.make_future_dataframe(periods=30)
+forecast = model.predict(future)
+
+model.plot(forecast)
+plt.title("Prophet Forecast")
+plt.show()
